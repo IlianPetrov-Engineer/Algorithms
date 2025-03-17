@@ -14,6 +14,8 @@ public class DungeonGenerator : MonoBehaviour
 
     public bool automaticGeneration = false;
 
+    private int[] percentageSplit = { 5, 4, 3, 2, 1 };
+
     public enum DungeonSize { Mini, Small, Medium, Large, Custom };
 
     [Tooltip("Mini - 50x50, Small - 100x100, Medim - 150x150, Large - 200x200, Custom - write your own positives values")]
@@ -44,7 +46,7 @@ public class DungeonGenerator : MonoBehaviour
 
     void Update()
     {
-        bool allRoomsTooSmall = true;
+        bool allRoomsAreTooSmall = true;
 
         foreach (var room in rooms)
         {
@@ -52,11 +54,16 @@ public class DungeonGenerator : MonoBehaviour
 
             if (room.width > minWidht * 2 || room.height > minHeight * 2)
             {
-                allRoomsTooSmall = false;
+                allRoomsAreTooSmall = false;
+            }
+
+            if (room.width < minWidht || room.height < minHeight)
+            {
+                Debug.Log("Min reached");
             }
         }
 
-        if (allRoomsTooSmall && coroutine != null)
+        if (allRoomsAreTooSmall && coroutine != null)
         {
             StopCoroutine(coroutine);
             coroutine = null;
@@ -119,12 +126,16 @@ public class DungeonGenerator : MonoBehaviour
     void SplitingVeriticaly()
     {
         List<int> validRooms = new List<int>();
+        List<int> validSplits = new List<int>();
 
         for (int i = 0; i < rooms.Count; i++)
         {
-            if (rooms[i].width > minWidht * 2)
+            foreach (int percentage in percentageSplit)
             {
-                validRooms.Add(i);
+                if (rooms[i].width * percentage / 10 >= minWidht && (rooms[i].width - (rooms[i].width * percentage / 10)) >= minWidht)
+                {
+                    validRooms.Add(i);
+                }
             }
         }
 
@@ -134,9 +145,21 @@ public class DungeonGenerator : MonoBehaviour
 
             RectInt roomY = rooms[randomRoomY];
 
-            int splitX = roomY.x + roomY.width / 2;
+            foreach (int percentage in percentageSplit)
+            {
+                if (roomY.width * percentage / 10 >= minWidht && (roomY.width - roomY.width * percentage / 10) >= minWidht)
+                {
+                    validSplits.Add(percentage);
+                }
+            }
 
-            RectInt left = new RectInt(roomY.x /*+ overlap*/, roomY.y, roomY.width / 2 /*- overlap*/, roomY.height);
+            int split = validSplits[Random.Range(0, validSplits.Count)];
+
+            int width = (roomY.width * split) / 10;
+
+            int splitX = roomY.x + width;
+
+            RectInt left = new RectInt(roomY.x, roomY.y, width, roomY.height);
             RectInt right = new RectInt(splitX - overlap, roomY.y, roomY.width - left.width + overlap, roomY.height);
 
             rooms.RemoveAt(randomRoomY);
@@ -154,12 +177,16 @@ public class DungeonGenerator : MonoBehaviour
     void SplitingHorizontaly()
     {
         List<int> validRooms = new List<int>();
+        List<int> validSplits = new List<int>();
 
         for (int i = 0; i < rooms.Count; i++)
         {
-            if (rooms[i].height > minHeight * 2)
+            foreach (int percentage in percentageSplit)
             {
-                validRooms.Add(i);
+                if (rooms[i].height * percentage / 10 >= minHeight && (rooms[i].height - (rooms[i].height * percentage / 10)) >= minHeight)
+                {
+                    validRooms.Add(i);
+                }
             }
         }
 
@@ -169,10 +196,22 @@ public class DungeonGenerator : MonoBehaviour
 
             RectInt roomX = rooms[randomRoomX];
 
-            int splitY = roomX.y + roomX.height / 2;
+            foreach (int percentage in percentageSplit)
+            {
+                if (roomX.height * percentage / 10 >= minHeight && (roomX.height - roomX.height * percentage / 10) >= minHeight)
+                {
+                    validSplits.Add(percentage);
+                }
+            }
 
-            RectInt top = new RectInt(roomX.x, roomX.y /*+ overlap*/, roomX.width, roomX.height / 2 /*- overlap*/);
-            RectInt bottom = new RectInt(roomX.x, splitY - overlap, roomX.width, roomX.height - top.height + overlap);
+            int split = validSplits[Random.Range(0, validSplits.Count)];
+
+            int height = (roomX.height * split) / 10;
+
+            int splitX = roomX.y + height;
+
+            RectInt top = new RectInt(roomX.x, roomX.y, roomX.width, height);
+            RectInt bottom = new RectInt(roomX.x, splitX - overlap, roomX.width, roomX.height - top.height + overlap);
 
             rooms.RemoveAt(randomRoomX);
             rooms.Add(top);
