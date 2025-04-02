@@ -23,8 +23,11 @@ public class DungeonGenerator : MonoBehaviour
 
     public RectInt masterRoom;
     public List<RectInt> rooms = new List<RectInt>();
+    public List<RectInt> doors = new List<RectInt>();
 
     private Coroutine coroutine;
+
+    bool generatingDoors = false;
 
     void Start()
     {
@@ -63,11 +66,19 @@ public class DungeonGenerator : MonoBehaviour
             }
         }
 
-        if (allRoomsAreTooSmall && coroutine != null)
+        foreach (var door in doors)
+        {
+            AlgorithmsUtils.DebugRectInt(door, Color.blue);
+        }
+
+        if (allRoomsAreTooSmall && coroutine != null && !generatingDoors)
         {
             StopCoroutine(coroutine);
             coroutine = null;
             Debug.Log("Coroutine is stopped");
+
+            generatingDoors = true;
+            coroutine = StartCoroutine(GeneratingDoors());
         }
     }
 
@@ -117,8 +128,63 @@ public class DungeonGenerator : MonoBehaviour
             else
             {
                 Debug.Log("Max amount of rooms is reached");
-                yield break;
+                break;
             }
+        }
+    }
+
+    IEnumerator GeneratingDoors()
+    {
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            for (int j = i + 1; j < rooms.Count; j++)
+            {
+                RectInt roomA = rooms[i];
+                RectInt roomB = rooms[j];
+
+                if (roomB.Overlaps(roomA))
+                {
+                    int xMin = Mathf.Max(roomA.xMin, roomB.xMin);
+                    int xMax = Mathf.Min(roomA.xMax, roomB.xMax);
+                    int yMin = Mathf.Max(roomA.yMin, roomB.yMin);
+                    int yMax = Mathf.Min(roomA.yMax, roomB.yMax);
+
+                    if (xMax - xMin == overlap)
+                    {
+                        int doorY = (yMin + yMax) / 2;
+
+                        if (doorY - overlap * 2 > yMin && doorY + overlap * 2 < yMax)
+                        {
+                            RectInt door = new RectInt(xMin, doorY - overlap / 2, overlap, overlap * 2);
+                            if (!doors.Contains(door))
+                            {
+                                doors.Add(door);
+                            }
+                        }
+                    }
+
+                    else if (yMax - yMin == overlap)
+                    {
+                        int doorX = (xMin + xMax) / 2;
+
+                        if (doorX - overlap * 2 > xMin && doorX + overlap * 2 < xMax)
+                        {
+                            RectInt door = new RectInt(doorX - overlap / 2, yMin, overlap * 2, overlap);
+                            if (!doors.Contains(door))
+                            {
+                                doors.Add(door);
+                            }
+                        }
+                    }
+
+                    yield return new WaitForSeconds(timePerRoom);
+                }
+            }
+        }
+
+        foreach (var door in doors)
+        {
+            AlgorithmsUtils.DebugRectInt(door, Color.blue);
         }
     }
 
