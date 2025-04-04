@@ -1,6 +1,7 @@
 using NaughtyAttributes;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -13,6 +14,7 @@ public class DungeonGenerator : MonoBehaviour
     public float timePerRoom;
 
     public bool automaticGeneration = false;
+    public float removePercentage;
 
     private int[] percentageSplit = { 5, 4, 3, 2, 1 };
 
@@ -28,6 +30,12 @@ public class DungeonGenerator : MonoBehaviour
     private Coroutine coroutine;
 
     bool generatingDoors = false;
+    bool generatingGraph = false;
+
+    public DungeonGraph<RectInt> dungeonGraph = new DungeonGraph<RectInt>();
+
+    private List<Vector3> nodePos = new List<Vector3>();
+    private List<(Vector3, Vector3)> edges = new List<(Vector3, Vector3)>();
 
     void Start()
     {
@@ -75,10 +83,28 @@ public class DungeonGenerator : MonoBehaviour
         {
             StopCoroutine(coroutine);
             coroutine = null;
-            Debug.Log("Coroutine is stopped");
+            Debug.Log("All rooms are generated");
 
             generatingDoors = true;
             coroutine = StartCoroutine(GeneratingDoors());
+        }
+
+        if (!generatingDoors && !generatingGraph && doors.Count > 0 && coroutine != null)
+        {
+            StopCoroutine(coroutine);
+            coroutine = null;
+            Debug.Log("All doors are generated");
+
+            generatingGraph = true;
+            coroutine = StartCoroutine(BuildGraph());
+        }
+
+        if (generatingGraph && coroutine != null)
+        {
+            StopCoroutine(coroutine);
+            coroutine = null;
+            Debug.Log("The graph is done");
+            Debug.Log("All coroutines are finished");
         }
     }
 
@@ -135,6 +161,8 @@ public class DungeonGenerator : MonoBehaviour
 
     IEnumerator GeneratingDoors()
     {
+        RemoveRooms();
+
         for (int i = 0; i < rooms.Count; i++)
         {
             for (int j = i + 1; j < rooms.Count; j++)
@@ -181,6 +209,10 @@ public class DungeonGenerator : MonoBehaviour
                 }
             }
         }
+
+        generatingGraph = false;
+
+        StartCoroutine(BuildGraph());
 
         foreach (var door in doors)
         {
@@ -288,5 +320,111 @@ public class DungeonGenerator : MonoBehaviour
         {
             SplitingVeriticaly();
         }
+    }
+
+    IEnumerator BuildGraph()
+    {
+        dungeonGraph.Clear();
+        nodePos.Clear();
+        edges.Clear();
+
+        foreach (var room in rooms)
+        {
+            Vector3 roomCenter = new Vector3(room.x + room.width / 2, 0, room.y + room.height / 2);
+            dungeonGraph.AddNode(room);
+            nodePos.Add(roomCenter);
+            yield return new WaitForSeconds(timePerRoom);
+        }
+
+        foreach (var door in doors)
+        {
+            Vector3 doorCenter = new Vector3(door.x + door.width / 2, 0, door.y + door.height / 2);
+            dungeonGraph.AddNode(door);
+            nodePos.Add(doorCenter);
+            yield return new WaitForSeconds(timePerRoom);
+        }
+
+        HashSet<RectInt> visited = new HashSet<RectInt>();
+        Stack<RectInt> stack = new Stack<RectInt>();
+
+        RectInt startNode = rooms[Random.Range(0, rooms.Count)];
+        stack.Push(startNode);
+        visited.Add(startNode);
+
+        while (stack.Count > 0)
+        {
+            RectInt current = stack.Pop();
+            Vector3 currentCenter = new Vector3(current.x + current.width / 2, 0, current.y + current.height / 2);
+
+            foreach (var door in doors)
+            {
+                if (!current.Overlaps(door)) continue;
+
+                Vector3 doorCenter = new Vector3(door.x + door.width / 2, 0, door.y + door.height / 2);
+
+                foreach (var nextRoom in rooms)
+                {
+                    if (!nextRoom.Overlaps(door) || visited.Contains(nextRoom)) continue;
+
+                    Vector3 nextRoomCenter = new Vector3(nextRoom.x + nextRoom.width / 2, 0, nextRoom.y + nextRoom.height / 2);
+
+                    edges.Add((currentCenter, doorCenter));
+                    yield return new WaitForSeconds(timePerRoom);
+
+                    edges.Add((doorCenter, nextRoomCenter));
+                    yield return new WaitForSeconds(timePerRoom);
+
+                    visited.Add(nextRoom);
+                    stack.Push(nextRoom);
+                }
+            }
+        }
+
+        generatingGraph = true;
+    }
+
+    void OnDrawGizmos()
+    {
+        if (nodePos == null || edges == null) return;
+
+        Gizmos.color = Color.red;
+        foreach (var edge in edges)
+        {
+            Gizmos.DrawLine(edge.Item1, edge.Item2);
+        }
+
+        Gizmos.color = Color.cyan;
+        foreach (var node in nodePos)
+        {
+            DrawCircle(node, 0.5f);
+        }
+    }
+
+    void DrawCircle(Vector3 center, float radius)
+    {
+        int circleDivisions = 30;
+        Vector3 previousCircle = center + new Vector3(radius, 0, 0);
+
+        for (int i = 1; i <= circleDivisions; i++)
+        {
+            float angle = i * (2 * Mathf.PI / circleDivisions);
+            Vector3 newCircle = center + new Vector3(Mathf.Cos(angle) * radius, 0, Mathf.Sin(angle) * radius);
+            Gizmos.DrawLine(previousCircle, newCircle);
+            previousCircle = newCircle;
+        }
+    }
+
+    void RemoveRooms()
+    {
+        int removeCount = Mathf.CeilToInt(rooms.Count * removePercentage / 100);
+
+        List<RectInt> roomsToRemove = rooms.Take(removeCount).ToList();
+
+        foreach (var room in roomsToRemove)
+        {
+            dungeonGraph.RemoveNode(room);
+        }
+
+        rooms.RemoveAll(r => roomsToRemove.Contains(r));
     }
 }
