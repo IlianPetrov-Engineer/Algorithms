@@ -3,20 +3,28 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.tvOS;
 using UnityEngine.UIElements;
 
 public class DungeonGenerator : MonoBehaviour
 {
+    #region Variables
+
+    #region RoomRelated
     public int overlap;
     public int maxRooms;
     public int minWidht;
     public int minHeight;
     public float timePerRoom;
+    #endregion
 
+    #region DungeonRelated
     public bool automaticGeneration = false;
     public float removePercentage;
-
     private int[] percentageSplit = { 5, 4, 3, 2, 1 };
+
+    public int seed;
+    public bool setSeed;
 
     public enum DungeonSize { Mini, Small, Medium, Large, Custom };
 
@@ -29,6 +37,11 @@ public class DungeonGenerator : MonoBehaviour
 
     private Coroutine coroutine;
 
+    public GameObject cube;
+    public GameObject floor;
+    #endregion
+
+    #region GraphRelated
     bool generatingDoors = false;
     bool generatingGraph = false;
 
@@ -36,6 +49,9 @@ public class DungeonGenerator : MonoBehaviour
 
     private List<Vector3> nodePos = new List<Vector3>();
     private List<(Vector3, Vector3)> edges = new List<(Vector3, Vector3)>();
+    #endregion
+
+    #endregion
 
     void Start()
     {
@@ -48,7 +64,7 @@ public class DungeonGenerator : MonoBehaviour
             coroutine = StartCoroutine(GeneratingRooms());
         }
 
-        if (masterRoom.width < 0 || masterRoom.height < 0)
+        if (masterRoom.width <= minWidht || masterRoom.height <= minHeight)
         {
             StopCoroutine(coroutine);
             Debug.LogError("Input positive values for wigth and height");
@@ -57,6 +73,12 @@ public class DungeonGenerator : MonoBehaviour
 
     void Update()
     {
+        if (setSeed)
+        {
+            seed = seed.GetHashCode();
+            Random.InitState(seed);
+        }
+
         bool allRoomsAreTooSmall = true;
 
         foreach (var room in rooms)
@@ -130,6 +152,7 @@ public class DungeonGenerator : MonoBehaviour
         }
     }
 
+    #region Coroutines
     IEnumerator GeneratingRooms()
     {
         for (; ; )
@@ -220,6 +243,69 @@ public class DungeonGenerator : MonoBehaviour
         }
     }
 
+    IEnumerator BuildGraph()
+    {
+        dungeonGraph.Clear();
+        nodePos.Clear();
+        edges.Clear();
+
+        foreach (var room in rooms)
+        {
+            Vector3 roomCenter = new Vector3(room.x + room.width / 2, 0, room.y + room.height / 2);
+            dungeonGraph.AddNode(room);
+            nodePos.Add(roomCenter);
+            yield return new WaitForSeconds(timePerRoom);
+        }
+
+        foreach (var door in doors)
+        {
+            Vector3 doorCenter = new Vector3(door.x + door.width / 2, 0, door.y + door.height / 2);
+            dungeonGraph.AddNode(door);
+            nodePos.Add(doorCenter);
+            yield return new WaitForSeconds(timePerRoom);
+        }
+
+        HashSet<RectInt> visited = new HashSet<RectInt>();
+        Stack<RectInt> stack = new Stack<RectInt>();
+
+        RectInt startNode = rooms[Random.Range(0, rooms.Count)];
+        stack.Push(startNode);
+        visited.Add(startNode);
+
+        while (stack.Count > 0)
+        {
+            RectInt current = stack.Pop();
+            Vector3 currentCenter = new Vector3(current.x + current.width / 2, 0, current.y + current.height / 2);
+
+            foreach (var door in doors)
+            {
+                if (!current.Overlaps(door)) continue;
+
+                Vector3 doorCenter = new Vector3(door.x + door.width / 2, 0, door.y + door.height / 2);
+
+                foreach (var nextRoom in rooms)
+                {
+                    if (!nextRoom.Overlaps(door) || visited.Contains(nextRoom)) continue;
+
+                    Vector3 nextRoomCenter = new Vector3(nextRoom.x + nextRoom.width / 2, 0, nextRoom.y + nextRoom.height / 2);
+
+                    edges.Add((currentCenter, doorCenter));
+                    yield return new WaitForSeconds(timePerRoom);
+
+                    edges.Add((doorCenter, nextRoomCenter));
+                    yield return new WaitForSeconds(timePerRoom);
+
+                    visited.Add(nextRoom);
+                    stack.Push(nextRoom);
+                }
+            }
+        }
+        RemoveDoors();
+    }
+
+    #endregion
+
+    #region RoomSplit
     [Button]
     void SplitingVeriticaly()
     {
@@ -321,68 +407,9 @@ public class DungeonGenerator : MonoBehaviour
             SplitingVeriticaly();
         }
     }
+    #endregion
 
-    IEnumerator BuildGraph()
-    {
-        dungeonGraph.Clear();
-        nodePos.Clear();
-        edges.Clear();
-
-        foreach (var room in rooms)
-        {
-            Vector3 roomCenter = new Vector3(room.x + room.width / 2, 0, room.y + room.height / 2);
-            dungeonGraph.AddNode(room);
-            nodePos.Add(roomCenter);
-            yield return new WaitForSeconds(timePerRoom);
-        }
-
-        foreach (var door in doors)
-        {
-            Vector3 doorCenter = new Vector3(door.x + door.width / 2, 0, door.y + door.height / 2);
-            dungeonGraph.AddNode(door);
-            nodePos.Add(doorCenter);
-            yield return new WaitForSeconds(timePerRoom);
-        }
-
-        HashSet<RectInt> visited = new HashSet<RectInt>();
-        Stack<RectInt> stack = new Stack<RectInt>();
-
-        RectInt startNode = rooms[Random.Range(0, rooms.Count)];
-        stack.Push(startNode);
-        visited.Add(startNode);
-
-        while (stack.Count > 0)
-        {
-            RectInt current = stack.Pop();
-            Vector3 currentCenter = new Vector3(current.x + current.width / 2, 0, current.y + current.height / 2);
-
-            foreach (var door in doors)
-            {
-                if (!current.Overlaps(door)) continue;
-
-                Vector3 doorCenter = new Vector3(door.x + door.width / 2, 0, door.y + door.height / 2);
-
-                foreach (var nextRoom in rooms)
-                {
-                    if (!nextRoom.Overlaps(door) || visited.Contains(nextRoom)) continue;
-
-                    Vector3 nextRoomCenter = new Vector3(nextRoom.x + nextRoom.width / 2, 0, nextRoom.y + nextRoom.height / 2);
-
-                    edges.Add((currentCenter, doorCenter));
-                    yield return new WaitForSeconds(timePerRoom);
-
-                    edges.Add((doorCenter, nextRoomCenter));
-                    yield return new WaitForSeconds(timePerRoom);
-
-                    visited.Add(nextRoom);
-                    stack.Push(nextRoom);
-                }
-            }
-        }
-
-        generatingGraph = true;
-    }
-
+    #region GraphVisualisation
     void OnDrawGizmos()
     {
         if (nodePos == null || edges == null) return;
@@ -413,6 +440,7 @@ public class DungeonGenerator : MonoBehaviour
             previousCircle = newCircle;
         }
     }
+    #endregion
 
     void RemoveRooms()
     {
@@ -426,5 +454,82 @@ public class DungeonGenerator : MonoBehaviour
         }
 
         rooms.RemoveAll(r => roomsToRemove.Contains(r));
+    }
+
+    void RemoveDoors()
+    {
+        doors.RemoveAll(door =>
+        {
+            Vector3 center = new Vector3(door.x + door.width / 2, 0, door.y + door.height / 2);
+            foreach (var edge in edges)
+            {
+                if (edge.Item1 == center || edge.Item2 == center)
+                    return false;
+            }
+            return true;
+        });
+
+        nodePos.RemoveAll(pos =>
+        {
+            foreach (var edge in edges)
+            {
+                if (edge.Item1 == pos || edge.Item2 == pos)
+                    return false;
+            }
+            return true;
+        });
+    }
+
+    [Button]
+    public void SpawnDungeonAssets()
+    {
+        GameObject parentRoom = new GameObject("Room");
+
+        var doorPos = new HashSet<Vector3>();
+        foreach (var door in doors)
+        {
+            doorPos.Add(new Vector3(door.x + 0.5f, 0f, door.y + 0.5f));
+            doorPos.Add(new Vector3(door.x + 1.5f, 0f, door.y + 0.5f));
+            doorPos.Add(new Vector3(door.x + 0.5f, 0f, door.y + 1.5f));
+        }
+
+        foreach (var room in rooms)
+        {
+            Vector3 corner = new Vector3(room.center.x - room.width * 0.5f, 0f, room.center.y - room.height * 0.5f);
+
+            for (int i = 0; i < room.xMax; i++)
+            {
+                var bottomPos = new Vector3(i + 0.5f, 0f, 0.5f);
+                if (!doorPos.Contains(bottomPos))
+                {
+                    Instantiate(cube, bottomPos, Quaternion.identity, parentRoom.transform);
+                }
+
+                var topPos = new Vector3(i + 0.5f, 0, room.yMax - 0.5f);
+                if (!doorPos.Contains(topPos))
+                {
+                    Instantiate(cube, topPos, Quaternion.identity, parentRoom.transform);
+                }
+            }
+
+            for (int j = 0; j < room.yMax; j++)
+            {
+                var leftPos = new Vector3(0.5f, 0, j + 0.5f);
+                if (!doorPos.Contains(leftPos))
+                {
+                    Instantiate(cube, leftPos, Quaternion.identity, parentRoom.transform);
+                }
+
+                var rightPos = new Vector3(room.xMax - 0.5f, 0, j + 0.5f);
+                if (!doorPos.Contains(rightPos))
+                {
+                    Instantiate(cube, rightPos, Quaternion.identity, parentRoom.transform);
+                }
+            }
+
+            floor.transform.localScale = new Vector3(room.width, room.height, 1);
+
+            Instantiate(floor, new Vector3(room.center.x, -0.75f, room.center.y), Quaternion.Euler(90, 0, 0));
+        }
     }
 }
