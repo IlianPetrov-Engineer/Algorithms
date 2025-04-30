@@ -2,8 +2,8 @@ using NaughtyAttributes;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using Unity.AI.Navigation;
 using UnityEngine;
-using UnityEngine.tvOS;
 using UnityEngine.UIElements;
 
 public class DungeonGenerator : MonoBehaviour
@@ -36,19 +36,27 @@ public class DungeonGenerator : MonoBehaviour
     public List<RectInt> doors = new List<RectInt>();
 
     private Coroutine coroutine;
-
-    public GameObject cube;
-    public GameObject floor;
     #endregion
 
     #region GraphRelated
+
     bool generatingDoors = false;
     bool generatingGraph = false;
+    bool graphDone = false;
 
     public DungeonGraph<RectInt> dungeonGraph = new DungeonGraph<RectInt>();
 
     private List<Vector3> nodePos = new List<Vector3>();
     private List<(Vector3, Vector3)> edges = new List<(Vector3, Vector3)>();
+    #endregion
+
+    #region PostDungeon
+
+    NavMeshSurface navMeshSurface;
+    TileMapGenerator tilemap;
+
+    [SerializeField] GameObject player;
+
     #endregion
 
     #endregion
@@ -69,6 +77,9 @@ public class DungeonGenerator : MonoBehaviour
             StopCoroutine(coroutine);
             Debug.LogError("Input positive values for wigth and height");
         }
+
+        navMeshSurface = FindAnyObjectByType<NavMeshSurface>();
+        tilemap = FindAnyObjectByType<TileMapGenerator>();
     }
 
     void Update()
@@ -111,22 +122,24 @@ public class DungeonGenerator : MonoBehaviour
             coroutine = StartCoroutine(GeneratingDoors());
         }
 
-        if (!generatingDoors && !generatingGraph && doors.Count > 0 && coroutine != null)
+        if (generatingDoors && generatingGraph)
         {
             StopCoroutine(coroutine);
-            coroutine = null;
             Debug.Log("All doors are generated");
+            coroutine = null;
 
             generatingGraph = true;
             coroutine = StartCoroutine(BuildGraph());
         }
 
-        if (generatingGraph && coroutine != null)
+        if (graphDone)
         {
-            StopCoroutine(coroutine);
-            coroutine = null;
+            graphDone = false;
             Debug.Log("The graph is done");
             Debug.Log("All coroutines are finished");
+            tilemap.GenerateTileMap();
+            tilemap.PlaceAssets();
+            BuildNavMesh();
         }
     }
 
@@ -233,18 +246,17 @@ public class DungeonGenerator : MonoBehaviour
             }
         }
 
-        generatingGraph = false;
-
-        StartCoroutine(BuildGraph());
-
         foreach (var door in doors)
         {
             AlgorithmsUtils.DebugRectInt(door, Color.blue);
         }
+
+        generatingGraph = true;
     }
 
     IEnumerator BuildGraph()
     {
+        generatingGraph = false;
         dungeonGraph.Clear();
         nodePos.Clear();
         edges.Clear();
@@ -301,6 +313,7 @@ public class DungeonGenerator : MonoBehaviour
             }
         }
         RemoveDoors();
+        graphDone = true;
     }
 
     #endregion
@@ -454,6 +467,8 @@ public class DungeonGenerator : MonoBehaviour
         }
 
         rooms.RemoveAll(r => roomsToRemove.Contains(r));
+
+        Debug.Log(removePercentage + " % of the rooms were removed");
     }
 
     void RemoveDoors()
@@ -478,58 +493,13 @@ public class DungeonGenerator : MonoBehaviour
             }
             return true;
         });
+
+        Debug.Log("Unconnected doors are removed");
     }
 
     [Button]
-    public void SpawnDungeonAssets()
+    private void BuildNavMesh()
     {
-        GameObject parentRoom = new GameObject("Room");
-
-        var doorPos = new HashSet<Vector3>();
-        foreach (var door in doors)
-        {
-            doorPos.Add(new Vector3(door.x + 0.5f, 0f, door.y + 0.5f));
-            doorPos.Add(new Vector3(door.x + 1.5f, 0f, door.y + 0.5f));
-            doorPos.Add(new Vector3(door.x + 0.5f, 0f, door.y + 1.5f));
-        }
-
-        foreach (var room in rooms)
-        {
-            Vector3 corner = new Vector3(room.center.x - room.width * 0.5f, 0f, room.center.y - room.height * 0.5f);
-
-            for (int i = 0; i < room.xMax; i++)
-            {
-                var bottomPos = new Vector3(i + 0.5f, 0f, 0.5f);
-                if (!doorPos.Contains(bottomPos))
-                {
-                    Instantiate(cube, bottomPos, Quaternion.identity, parentRoom.transform);
-                }
-
-                var topPos = new Vector3(i + 0.5f, 0, room.yMax - 0.5f);
-                if (!doorPos.Contains(topPos))
-                {
-                    Instantiate(cube, topPos, Quaternion.identity, parentRoom.transform);
-                }
-            }
-
-            for (int j = 0; j < room.yMax; j++)
-            {
-                var leftPos = new Vector3(0.5f, 0, j + 0.5f);
-                if (!doorPos.Contains(leftPos))
-                {
-                    Instantiate(cube, leftPos, Quaternion.identity, parentRoom.transform);
-                }
-
-                var rightPos = new Vector3(room.xMax - 0.5f, 0, j + 0.5f);
-                if (!doorPos.Contains(rightPos))
-                {
-                    Instantiate(cube, rightPos, Quaternion.identity, parentRoom.transform);
-                }
-            }
-
-            floor.transform.localScale = new Vector3(room.width, room.height, 1);
-
-            Instantiate(floor, new Vector3(room.center.x, -0.75f, room.center.y), Quaternion.Euler(90, 0, 0));
-        }
+        navMeshSurface.BuildNavMesh();
     }
 }
