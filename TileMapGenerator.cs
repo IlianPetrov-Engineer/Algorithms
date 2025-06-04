@@ -1,4 +1,6 @@
 using NaughtyAttributes;
+using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
@@ -7,7 +9,7 @@ public class TileMapGenerator : MonoBehaviour
     #region Variables
 
     public DungeonGenerator dungeonGenerator;
-    
+
     public GameObject[] assets = new GameObject[16];
     private int[,] tileMap;
     #endregion
@@ -54,7 +56,7 @@ public class TileMapGenerator : MonoBehaviour
 
         for (int i = start; i != end; i += step)
         {
-            for (int j = 0; j < colss; j++)
+            for (int j = 0; j < cols; j++)
             {
                 sb.Append((tileMap[i, j] == 0 ? '0' : '#'));
             }
@@ -80,13 +82,87 @@ public class TileMapGenerator : MonoBehaviour
         int rows = map.GetLength(0);
         int cols = map.GetLength(1);
 
-        int bottomLeft = map[row, col] != 0 ? 8 : 0;  
-        int bottomRight = map[row, col + 1] != 0 ? 1 : 0;  
-        int topRight = map[row + 1, col + 1] != 0 ? 2 : 0; 
+        int bottomLeft = map[row, col] != 0 ? 8 : 0;
+        int bottomRight = map[row, col + 1] != 0 ? 1 : 0;
+        int topRight = map[row + 1, col + 1] != 0 ? 2 : 0;
         int topLeft = map[row + 1, col] != 0 ? 4 : 0;
 
         return bottomLeft | bottomRight | topRight | topLeft;
     }
+
+    public void StartFloodFillFloor()
+    {
+        StartCoroutine(FloodFillFloor());
+    }
+
+    IEnumerator FloodFillFloor()
+    {
+        FloodFillDone = false;
+
+        if (tileMap == null)
+        {
+            Debug.LogError("TileMap not generated yet.");
+            yield break;
+        }
+
+        GameObject parent = new GameObject("FloodFilledFloor");
+
+        // Pick a random room center as start
+        RectInt startRoom = dungeonGenerator.rooms[Random.Range(0, dungeonGenerator.rooms.Count)];
+        Vector2Int start = new Vector2Int(startRoom.x + startRoom.width / 2, startRoom.y + startRoom.height / 2);
+
+        Stack<Vector2Int> stack = new Stack<Vector2Int>();
+        HashSet<Vector2Int> visited = new HashSet<Vector2Int>();
+
+        stack.Push(start);
+        visited.Add(start);
+
+        while (stack.Count > 0)
+        {
+            Vector2Int current = stack.Pop();
+
+            // Place floor tile at this position
+            Vector3 worldPos = new Vector3(current.x + 1, 0f, current.y + 1);
+            Instantiate(assets[0], worldPos, Quaternion.identity, parent.transform);
+
+            yield return new WaitForSeconds(0.01f); // controls speed of flood fill
+
+            // Check 4 neighbors (up, down, left, right)
+            foreach (var dir in Directions)
+            {
+                Vector2Int neighbor = current + dir;
+
+                if (!IsInsideTileMap(neighbor)) continue;
+                if (visited.Contains(neighbor)) continue;
+
+                // Only flood into tileMap with value 1 (walkable)
+                if (tileMap[neighbor.y, neighbor.x] != 0) continue;
+
+                visited.Add(neighbor);
+                stack.Push(neighbor);
+            }
+        }
+
+        Debug.Log("Flood fill floor completed.");
+
+        FloodFillDone = true;
+    }
+
+    static readonly Vector2Int[] Directions = new Vector2Int[]
+    {
+    new Vector2Int(1, 0),  // right
+    new Vector2Int(-1, 0), // left
+    new Vector2Int(0, 1),  // up
+    new Vector2Int(0, -1), // down
+    };
+
+    bool IsInsideTileMap(Vector2Int pos)
+    {
+        return pos.y >= 0 && pos.y < tileMap.GetLength(0) &&
+               pos.x >= 0 && pos.x < tileMap.GetLength(1);
+    }
+
+    public bool FloodFillDone { get; private set; }
 
     [Button]
     public void PlaceAssets()
@@ -107,6 +183,8 @@ public class TileMapGenerator : MonoBehaviour
             for (int col = 0; col < cols - 1; col++)
             {
                 int code = Compute2x2Bitmask(tileMap, row, col);
+
+                if (code == 0) continue;
 
                 GameObject prefab = (code >= 0 && code < assets.Length) ? assets[code] : null;
 
