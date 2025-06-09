@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 public class DungeonGraph<RectInt>
@@ -76,8 +75,6 @@ public class DungeonGraph<RectInt>
 
         return false;
     }
-
-
 
     public List<RectInt> GetNeighbors(RectInt node)
     {

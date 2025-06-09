@@ -107,7 +107,6 @@ public class TileMapGenerator : MonoBehaviour
 
         GameObject parent = new GameObject("FloodFilledFloor");
 
-        // Pick a random room center as start
         RectInt startRoom = dungeonGenerator.rooms[Random.Range(0, dungeonGenerator.rooms.Count)];
         Vector2Int start = new Vector2Int(startRoom.x + startRoom.width / 2, startRoom.y + startRoom.height / 2);
 
@@ -121,13 +120,11 @@ public class TileMapGenerator : MonoBehaviour
         {
             Vector2Int current = stack.Pop();
 
-            // Place floor tile at this position
             Vector3 worldPos = new Vector3(current.x + 1, 0f, current.y + 1);
             Instantiate(assets[0], worldPos, Quaternion.identity, parent.transform);
 
-            yield return new WaitForSeconds(0.01f); // controls speed of flood fill
+            yield return new WaitForSeconds(0.01f);
 
-            // Check 4 neighbors (up, down, left, right)
             foreach (var dir in Directions)
             {
                 Vector2Int neighbor = current + dir;
@@ -135,7 +132,6 @@ public class TileMapGenerator : MonoBehaviour
                 if (!IsInsideTileMap(neighbor)) continue;
                 if (visited.Contains(neighbor)) continue;
 
-                // Only flood into tileMap with value 1 (walkable)
                 if (tileMap[neighbor.y, neighbor.x] != 0) continue;
 
                 visited.Add(neighbor);
