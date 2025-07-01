@@ -63,7 +63,7 @@ public class DungeonGenerator : MonoBehaviour
 
     void Start()
     {
-        DungeonSizeGenerator(dungeonSize);
+        DungeonSizeGenerator(dungeonSize); //select dungeon size
 
         rooms.Add(masterRoom);
 
@@ -112,7 +112,7 @@ public class DungeonGenerator : MonoBehaviour
             AlgorithmsUtils.DebugRectInt(door, Color.blue);
         }
 
-        if (allRoomsAreTooSmall && coroutine != null && !generatingDoors)
+        if (allRoomsAreTooSmall && coroutine != null && !generatingDoors) //cannot divide any room 
         {
             StopCoroutine(coroutine);
             coroutine = null;
@@ -122,7 +122,7 @@ public class DungeonGenerator : MonoBehaviour
             coroutine = StartCoroutine(GeneratingDoors());
         }
 
-        if (generatingDoors && generatingGraph)
+        if (generatingDoors && generatingGraph) //all doors are generated
         {
             StopCoroutine(coroutine);
             Debug.Log("All doors are generated");
@@ -132,7 +132,7 @@ public class DungeonGenerator : MonoBehaviour
             coroutine = StartCoroutine(BuildGraph());
         }
 
-        if (graphDone)
+        if (graphDone) //the graph is complete
         {
             StartCoroutine(FinalizeGraphAndFlood());
             graphDone = false;
@@ -195,7 +195,12 @@ public class DungeonGenerator : MonoBehaviour
 
     IEnumerator GeneratingDoors()
     {
-        RemoveRooms();
+        RectInt breakingRoom;
+        if (!RemoveRooms(out breakingRoom))
+        {
+            Debug.LogWarning("Room removal stopped to keep graph connected. Problem room: " + breakingRoom);
+            yield break;
+        }
 
         for (int i = 0; i < rooms.Count; i++)
         {
@@ -261,17 +266,17 @@ public class DungeonGenerator : MonoBehaviour
 
         foreach (var room in rooms)
         {
-            Vector3 roomCenter = new Vector3(room.x + room.width / 2, 0, room.y + room.height / 2);
-            dungeonGraph.AddNode(room);
-            nodePos.Add(roomCenter);
+            Vector3 roomCenter = new Vector3(room.x + room.width / 2, 0, room.y + room.height / 2); //calculating the center of the room
+            dungeonGraph.AddNode(room); //adding the room in a dictionary for placing a node
+            nodePos.Add(roomCenter); //adding a node
             yield return new WaitForSeconds(timePerRoom);
         }
 
         foreach (var door in doors)
         {
-            Vector3 doorCenter = new Vector3(door.x + door.width / 2, 0, door.y + door.height / 2);
-            dungeonGraph.AddNode(door);
-            nodePos.Add(doorCenter);
+            Vector3 doorCenter = new Vector3(door.x + door.width / 2, 0, door.y + door.height / 2); //calculating the center of the door
+            dungeonGraph.AddNode(door); //adding the door in a dictionary for placing a node
+            nodePos.Add(doorCenter); //adding a node
             yield return new WaitForSeconds(timePerRoom);
         }
 
@@ -468,72 +473,70 @@ public class DungeonGenerator : MonoBehaviour
     }
     #endregion
 
-    void RemoveRooms()
+    bool RemoveRooms(out RectInt breakingRoom)
     {
-        int removeCount = Mathf.CeilToInt(rooms.Count * removePercentage / 100f);
-        int removed = 0;
+        breakingRoom = new RectInt();
 
-        while (removed < removeCount)
+        int targetRemovals = Mathf.FloorToInt(rooms.Count * (removePercentage / 100f));
+        int removals = 0;
+
+        List<RectInt> copyRooms = rooms.Where(r => r != masterRoom).ToList(); //copy of all existing rooms
+
+        foreach (var room in copyRooms)
         {
-            RectInt smallestRoom = default;
-            int smallestArea = int.MaxValue;
-
-            foreach (var room in rooms)
-            {
-                int area = room.width * room.height;
-                if (area < smallestArea)
-                {
-                    smallestArea = area;
-                    smallestRoom = room;
-                }
-            }
-
-            if (smallestArea == int.MaxValue)
+            if (removals >= targetRemovals)
                 break;
 
-            if (IsGraphConnected(dungeonGraph))
+            rooms.Remove(room); //removes the room temporarily
+
+            DungeonGraph<RectInt> testGraph = new DungeonGraph<RectInt>(); //temporary graph
+
+            ///adds all rooms and doors as nodes (expect the removed once)
+            foreach (var r in rooms) testGraph.AddNode(r);
+            foreach (var door in doors) testGraph.AddNode(door);
+
+            foreach (var door in doors)
             {
-                removed++;
-                rooms.Remove(smallestRoom);
-                dungeonGraph.RemoveNode(smallestRoom);
-            }
-
-            else
-            {
-                StopAllCoroutines();
-            }
-        }
-
-        Debug.Log($"Removed {removed} rooms.");
-    }
-
-    bool IsGraphConnected(DungeonGraph<RectInt> graph)
-    {
-        var graphDict = graph.GetGraph();
-        if (graphDict.Count == 0)
-            return true;
-
-        var visited = new HashSet<RectInt>();
-        var stack = new Stack<RectInt>();
-
-        var startNode = graphDict.Keys.First();
-        stack.Push(startNode);
-        visited.Add(startNode);
-
-        while (stack.Count > 0)
-        {
-            var current = stack.Pop();
-            foreach (var neighbor in graph.GetNeighbors(current))
-            {
-                if (!visited.Contains(neighbor))
+                var connectedRooms = rooms.Where(r => r.Overlaps(door)).ToList();
+                if (connectedRooms.Count == 2)
                 {
-                    visited.Add(neighbor);
-                    stack.Push(neighbor);
+                    testGraph.AddEdge(connectedRooms[0], door);
+                    testGraph.AddEdge(door, connectedRooms[1]);
                 }
             }
+
+            ///DFS from the masterRoom
+            HashSet<RectInt> visitedRooms = new HashSet<RectInt>();
+            Stack<RectInt> stack = new Stack<RectInt>();
+            stack.Push(masterRoom);
+            visitedRooms.Add(masterRoom);
+
+            while (stack.Count > 0)
+            {
+                var current = stack.Pop();
+
+                foreach (var neighbor in testGraph.GetNeighbors(current))
+                {
+                    if (neighbor is RectInt nextRoom && rooms.Contains(nextRoom) && !visitedRooms.Contains(nextRoom))
+                    {
+                        visitedRooms.Add(nextRoom);
+                        stack.Push(nextRoom);
+                    }
+                }
+            }
+
+            ///if a room is unreacheble, stop the algorithm
+            if (removals >= rooms.Count - (rooms.Count * targetRemovals / 100f))
+            {
+                rooms.Add(room); //restore the removed room
+                breakingRoom = room;
+                return false;
+            }
+
+            removals++;
         }
 
-        return visited.Count == graphDict.Count;
+        return true;
     }
 
     void RemoveDoors()
@@ -541,17 +544,6 @@ public class DungeonGenerator : MonoBehaviour
         doors.RemoveAll(door =>
         {
             Vector3 center = new Vector3(door.x + door.width / 2, 0, door.y + door.height / 2);
-            foreach (var edge in edges)
-            {
-                if (edge.Item1 == center || edge.Item2 == center)
-                    return false;
-            }
-            return true;
-        });
-
-        rooms.RemoveAll(rooms =>
-        {
-            Vector3 center = new Vector3(rooms.x + rooms.width / 2, 0, rooms.y + rooms.height / 2);
             foreach (var edge in edges)
             {
                 if (edge.Item1 == center || edge.Item2 == center)
